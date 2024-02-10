@@ -69,10 +69,23 @@ struct RegexLexer {
 
   RegexLexer& concatClass(const std::string& str) {
     const i32 ne = addState();
-    for (const auto c : str) {
-      std::for_each(accept.begin(), accept.end(), [&](auto n) { transitions[n][c].push_back(ne); });
-      if (!accept.size()) transitions[start][c].push_back(ne);
-      if (std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end()) alphabet.push_back(c);
+    if (str[0] == '^') {
+      bool exclude[256] = {};
+      const auto str2 = str.substr(1);
+      for (const auto c : str2) exclude[c] = true;
+      for (auto c = 1; c < 256; ++c) {
+        if (exclude[c]) continue;
+        std::for_each(accept.begin(), accept.end(), [&](auto n) { transitions[n][c].push_back(ne); });
+        if (!accept.size()) transitions[start][c].push_back(ne);
+        if (std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end()) alphabet.push_back(c);
+      }
+    }
+    else {
+      for (const auto c : str) {
+        std::for_each(accept.begin(), accept.end(), [&](auto n) { transitions[n][c].push_back(ne); });
+        if (!accept.size()) transitions[start][c].push_back(ne);
+        if (std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end()) alphabet.push_back(c);
+      }
     }
     accept = { ne };
     return *this;
@@ -276,11 +289,11 @@ struct RegexLexer {
     };
     return parse_();
   }
-  std::vector<T> match(const std::string& str) const {
+  std::vector<T> match(const std::string& str) {
     auto curr = start;
     for (const auto c : str) {
       if (std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end()) return {};
-      const auto& next = transitions.find(curr)->second.at(c);
+      auto& next = transitions.find(curr)->second[c];
       if (!next.size()) break;
       curr = next[0];
     }
