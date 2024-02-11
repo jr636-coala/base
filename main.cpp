@@ -14,7 +14,7 @@
   _(Else, "else") \
   _(While, "while") \
   _(Identifier, "[_$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ][_$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789]*") \
-  _(Whitespace, "( |\t|\n)+") \
+  _(Whitespace, "[ \t\n]+") \
   _(String, "\"[^\"]*\"") \
   _(Equal, "==") _(NotEqual, "!=") \
   _(Template, "\\\\<") \

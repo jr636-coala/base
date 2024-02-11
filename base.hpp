@@ -19,14 +19,86 @@ struct std::hash<std::unordered_set<i32>> {
   }
 };
 
+template <typename T>
+concept mvectorable = requires { requires sizeof(T) <= sizeof(T*); };
+
+template <mvectorable T>
+struct mvector {
+  mvector(const mvector& x) {
+    if (x.hasData()) {
+      data = static_cast<T*>(malloc(x._capacity * sizeof(T)));
+      memcpy(data, x.data, x._size * sizeof(T));
+      _capacity = x._capacity;
+      _size = x._size;
+    }
+    else if (hasValue()) mvector(x.val);
+    else mvector();
+  }
+  mvector(mvector&& x) { *this = std::move(x); }
+  mvector& operator=(const mvector& x) { return *this = mvector(x); }
+  mvector& operator=(mvector&& x) {
+    data = x.data;
+    _capacity = x._capacity;
+    _size = x._size;
+    x.data = nullptr;
+    return *this; }
+  static const size_t INITIAL_CAPACITY = 1;
+  mvector()
+      : data(INITIAL_CAPACITY ? static_cast<T*>(malloc(INITIAL_CAPACITY * sizeof(T))) : nullptr), _capacity(INITIAL_CAPACITY), _size(0) {}
+  ~mvector() { if (hasData()) free(data); }
+  mvector(T val) : val(val), _capacity(std::numeric_limits<size_t>::max()) {}
+  void push_back(T val) {
+    if (_size == _capacity) expand();
+    data[_size++] = val;
+  }
+  bool hasData() const { return !hasValue() && data != nullptr; }
+  bool hasValue() const { return _capacity == std::numeric_limits<size_t>::max(); }
+  void expand() {
+    const size_t ncap = (!_capacity + _capacity) * 2;
+    const auto allocSize = ncap * sizeof(T);
+    T* ndata = static_cast<T*>(realloc(data, allocSize));
+    if (!ndata) {
+      ndata = static_cast<T*>(malloc(allocSize));
+      memcpy(ndata, data, sizeof(T) * _size);
+      free(data);
+    }
+    data = ndata;
+    _capacity = ncap;
+  }
+  size_t size() const { return _size; }
+  struct iterator {
+    using difference_type = std::ptrdiff_t;
+    using element_type = T;
+
+    iterator(T* ptr) : ptr(ptr) {}
+    T& operator*() const { return *ptr; }
+    auto& operator++() { ptr++; return *this; }
+    auto operator++(int) { auto tmp = *this; ++(*this); return tmp; }
+    auto operator<=>(const iterator&) const = default;
+    T* ptr;
+  };
+
+  iterator begin() const { return iterator(data); }
+  iterator end() const { return iterator(&data[_size]); }
+  union { T* data; T val; };
+  size_t _size;
+  size_t _capacity;
+};
+
 template <typename T, T T_NULL, T (*TF)(T,T)>
 struct RegexLexer {
-  using transition_table_t = std::unordered_map<i32, std::unordered_map<char, std::vector<i32>>>;
+  using transition_table_t = std::vector<std::unordered_map<char, mvector<i32>>>;
   using state_t = T;
 
-  constexpr RegexLexer() : start(0), transitions({}), accept({}), states({ T_NULL }), alphabet({}) {}
+  constexpr RegexLexer() : start(0), transitions({{}}), accept({}), states({ T_NULL }), alphabet({}) {}
 
-  constexpr auto addState() { states.push_back(T_NULL); return states.size() - 1; }
+  constexpr auto addState() {
+    states.push_back(T_NULL);
+    transitions.push_back({});
+    /*if(transitions.size() != states.size())
+      exit(-1);*/
+    return states.size() - 1;
+  }
 
   constexpr RegexLexer& concat(char c, const std::optional<T> t = {}) {
     const i32 ne = addState();
@@ -45,7 +117,10 @@ struct RegexLexer {
     std::copy_if(x.alphabet.begin(), x.alphabet.end(), std::back_inserter(alphabet), [&](auto c) {
       return std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end();
     });
-    for (const auto& [s1, m] : x.transitions) {
+    transitions.reserve(states.size() + x.states.size());
+    for (auto s1 = 0; s1 < x.states.size(); ++s1) {
+      transitions.push_back({});
+      const auto& m = x.transitions[s1];
       for (const auto& [c, v] : m) {
         auto& tr = transitions[s1 + maxx][c];
         for (const auto& s2 : v) tr.push_back(s2 + maxx);
@@ -57,13 +132,32 @@ struct RegexLexer {
     return *this;
   }
 
+  char escapeChar(char c) const {
+    switch (c) {
+      case 't': return '\t';
+      case 'n': return '\n';
+      default: return c;
+    }
+  }
+
 
   RegexLexer& concatClass(const std::string_view& str) {
     const i32 ne = addState();
+    bool escape = false;
     if (str[0] == '^') {
       bool exclude[256] = {};
       const auto str2 = str.substr(1);
-      for (const auto c : str2) exclude[c] = true;
+      for (auto c : str2) {
+        if (!escape && c == '\\') {
+          escape = true;
+          continue;
+        }
+        if (escape) {
+          escape = false;
+          c = escapeChar(c);
+        }
+        exclude[c] = true;
+      }
       for (auto c = 1; c < 256; ++c) {
         if (exclude[c]) continue;
         std::for_each(accept.begin(), accept.end(), [&](auto n) { transitions[n][c].push_back(ne); });
@@ -72,7 +166,15 @@ struct RegexLexer {
       }
     }
     else {
-      for (const auto c : str) {
+      for (auto c : str) {
+        if (!escape && c == '\\') {
+          escape = true;
+          continue;
+        }
+        if (escape) {
+          escape = false;
+          c = escapeChar(c);
+        }
         std::for_each(accept.begin(), accept.end(), [&](auto n) { transitions[n][c].push_back(ne); });
         if (!accept.size()) transitions[start][c].push_back(ne);
         if (std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end()) alphabet.push_back(c);
@@ -89,7 +191,10 @@ struct RegexLexer {
     std::copy_if(x.alphabet.begin(), x.alphabet.end(), std::back_inserter(alphabet), [&](auto c) {
       return std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end();
     });
-    for (const auto& [s1, m] : x.transitions) {
+    transitions.reserve(states.size() + x.states.size());
+    for (auto s1 = 0; s1 < x.states.size(); ++s1) {
+      transitions.push_back({});
+      const auto& m = x.transitions[s1];
       for (const auto& [c, v] : m) {
         auto& tr = transitions[s1 + maxx][c];
         for (const auto& s2 : v) tr.push_back(s2 + maxx);
@@ -137,7 +242,7 @@ struct RegexLexer {
         if (epsilonCache.size() > n) {
           const auto& t2 = epsilonCache[n];
           std::copy_if(t2.begin(), t2.end(), std::back_inserter(s), [&](auto n) {
-            for (const auto x : t2) { if (x == n) return false; }
+            for (const auto x : s) { if (x == n) return false; }
             return true;
           });
         }
@@ -147,7 +252,7 @@ struct RegexLexer {
           t2.insert(t2.end(), tr.begin(), tr.end());
           t2 = epsilonClosure(t2);
           std::copy_if(t2.begin(), t2.end(), std::back_inserter(s), [&](auto n) {
-            for (const auto x : t2) { if (x == n) return false; }
+            for (const auto x : s) { if (x == n) return false; }
             return true;
           });
         }
@@ -155,19 +260,19 @@ struct RegexLexer {
       return s;
     };
     for (i32 i = 0; i < states.size(); ++i) epsilonCache.push_back(std::move(epsilonClosure({ i })));
-    const auto epsilonCached = [&](const std::unordered_set<i32>& s) {
-      auto s2 = s;
-      for (const auto n : s) {
-        const auto& c = epsilonCache[n];
-        s2.insert(c.begin(), c.end());
+    const auto epsilonCached = [&](std::unordered_set<i32>&& s) {
+      auto send = s.end(); // YIKES: This end will always be valid, even after allocation in clang, GCC may differ
+      for (auto n = s.begin(); n != send; ++n) {
+        const auto& c = epsilonCache[*n];
+        s.insert(c.begin(), c.end());
       }
-      return s2;
+      return std::move(s);
     };
 
     const auto delta = [&](const auto& s, auto c) {
       std::unordered_set<i32> out;
       for (const auto n : s) {
-        const auto& dc = transitions.find(n)->second;
+        const auto& dc = transitions[n];
         const auto& dcc = dc.find(c);
         if (dcc != dc.end()) out.insert(dcc->second.begin(), dcc->second.end());
       }
@@ -186,7 +291,7 @@ struct RegexLexer {
       ns.push_back(set);
       const auto n = ns.size() - 1;
       nsc[set] = n;
-      _transitions[n];
+      _transitions.push_back({});
       return n;
     };
 
@@ -199,7 +304,7 @@ struct RegexLexer {
         if (!s.size()) continue;
         const auto beforeSize = ns.size();
         const auto to = getns(s);
-        _transitions.find(nn)->second[c].push_back(to);
+        _transitions[nn][c] = { static_cast<i32>(to) };
         if (beforeSize != ns.size()) {
           nstates.push_back(std::reduce(s.begin(), s.end(), T_NULL, [&](auto acc, auto n) {
             const auto l = states[n];
@@ -249,7 +354,7 @@ struct RegexLexer {
         if (str[i] == '[') {
           out.concat(token);
           const auto start = i + 1;
-          while (str[++i] != ']');
+          while (str[++i] != ']' && str[i - 1] != '\\');
           token = RegexLexer().concatClass(str.substr(start, i - start));
           continue;
         }
@@ -290,9 +395,9 @@ struct RegexLexer {
     auto curr = start;
     for (const auto c : str) {
       if (std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end()) return {};
-      auto& next = transitions.find(curr)->second[c];
-      if (!next.size()) break;
-      curr = next[0];
+      const auto& next = transitions[curr].find(c);
+      if (next == transitions[curr].end()) break;
+      curr = next->second.val;
     }
     return states[curr];
   }
