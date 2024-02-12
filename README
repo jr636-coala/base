@@ -1,9 +1,8 @@
 mvector
 -------
- A minimal (and I mean minimal, works just enough to function)
- SUM(vector<T>, T) type. Useful in the regex case where we go from using an
- NFA (multiple routes per symbol out of a node) to a DFA (a single route
- per symbol out of the node). It means we don't have to allocate a bunch
+ A minimal SUM(vector<T>, T) type. Useful in the regex case where we go from
+ using an NFA (multiple routes per symbol out of a node) to a DFA (a single
+ route per symbol out of the node). It means we don't have to allocate a bunch
  more memory.
 
 RegexLexer

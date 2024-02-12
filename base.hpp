@@ -12,23 +12,6 @@ typedef uint32_t u32; typedef int32_t i32;
 typedef uint16_t u16; typedef int16_t i16;
 typedef uint8_t u8;   typedef int8_t i8;
 
-/*
- * mvector
- * -------
- *  A minimal (and I mean minimal, works just enough to function)
- *  SUM(vector<T>, T) type. Useful in the regex case where we go from using an
- *  NFA (multiple routes per symbol out of a node) to a DFA (a single route
- *  per symbol out of the node). It means we don't have to allocate a bunch
- *  more memory.
- * 
- * RegexLexer
- * ----------
- *  A regex implementation that has 'tagged' nodes, matching returns that tag.
- *  Written so that when I am writing lexers I don't have to do so much busy
- *  work.
- *
- * */
-
 template <>
 struct std::hash<std::unordered_set<i32>> {
   std::size_t operator()(const std::unordered_set<i32>& k) const {
@@ -39,26 +22,35 @@ struct std::hash<std::unordered_set<i32>> {
 template <typename T>
 concept mvectorable = requires { requires sizeof(T) <= sizeof(T*); };
 
+struct { size_t cpy {}; size_t mv {}; } stats;
+
 template <mvectorable T>
 struct mvector {
-  mvector(const mvector& x) {
-    if (x.hasData()) {
-      data = static_cast<T*>(malloc(x._capacity * sizeof(T)));
-      memcpy(data, x.data, x._size * sizeof(T));
-      _capacity = x._capacity;
-      _size = x._size;
-    }
-    else if (hasValue()) mvector(x.val);
-    else mvector();
-  }
+  mvector(const mvector& x) : data(nullptr) { *this = x; }
   mvector(mvector&& x) { *this = std::move(x); }
-  mvector& operator=(const mvector& x) { return *this = mvector(x); }
-  mvector& operator=(mvector&& x) {
-    data = x.data;
+  mvector& operator=(const mvector& x) {
+    ++stats.cpy;
+    if (hasData()) free(data);
     _capacity = x._capacity;
     _size = x._size;
-    x.data = nullptr;
-    return *this; }
+    if (x.hasValue()) val = x.val;
+    else {
+      data = static_cast<T*>(malloc(x._capacity * sizeof(T)));
+      memcpy(data, x.data, x._size * sizeof(T));
+    }
+    return *this;
+  }
+  mvector& operator=(mvector&& x) {
+    ++stats.mv;
+    if (this != &x) {
+      if (hasData()) free(data);
+      data = x.data;
+      _capacity = x._capacity;
+      _size = x._size;
+      x.data = nullptr;
+    }
+    return *this;
+  }
   static const size_t INITIAL_CAPACITY = 1;
   mvector()
       : data(INITIAL_CAPACITY ? static_cast<T*>(malloc(INITIAL_CAPACITY * sizeof(T))) : nullptr), _capacity(INITIAL_CAPACITY), _size(0) {}
@@ -68,7 +60,7 @@ struct mvector {
     if (_size == _capacity) expand();
     data[_size++] = val;
   }
-  bool hasData() const { return !hasValue() && data != nullptr; }
+  bool hasData() const { return !hasValue(); }
   bool hasValue() const { return _capacity == std::numeric_limits<size_t>::max(); }
   void expand() {
     const size_t ncap = (!_capacity + _capacity) * 2;
@@ -108,6 +100,24 @@ struct RegexLexer {
   using state_t = T;
 
   constexpr RegexLexer() : start(0), transitions({{}}), accept({}), states({ T_NULL }), alphabet({}) {}
+  RegexLexer(RegexLexer&& x) { *this = std::move(x); }
+  RegexLexer& operator=(RegexLexer&& x) {
+    start = x.start;
+    transitions = std::move(x.transitions);
+    accept = std::move(x.accept);
+    states = std::move(x.states);
+    alphabet = std::move(x.alphabet);
+    return *this;
+  }
+  RegexLexer(const RegexLexer& x) { *this = x; };
+  RegexLexer& operator=(const RegexLexer& x) {
+    start = x.start;
+    transitions = x.transitions;
+    accept = x.accept;
+    states = x.states;
+    alphabet = x.alphabet;
+    return *this;
+  }
 
   constexpr auto addState() {
     states.push_back(T_NULL);
@@ -430,19 +440,19 @@ struct RegexLexer {
       do {
         if (!iscontrol(str[i])) {
           out.concat(token);
-          token = RegexLexer().concat(str[i]);
+          token = std::move(RegexLexer().concat(str[i]));
           continue;
         }
         if (str[i] == '\\') {
           out.concat(token);
-          token = RegexLexer().concat(str[++i]);
+          token = std::move(RegexLexer().concat(str[++i]));
           continue;
         }
         if (str[i] == '[') {
           out.concat(token);
           const auto start = i + 1;
           while (str[++i] != ']' && str[i - 1] != '\\');
-          token = RegexLexer().concatClass(str.substr(start, i - start));
+          token = std::move(RegexLexer().concatClass(str.substr(start, i - start)));
           continue;
         }
         if (str[i] == '?') {
@@ -460,12 +470,12 @@ struct RegexLexer {
         else if (str[i] == '(') {
           ++i;
           out.concat(token);
-          token = parse(str, i);
+          token = std::move(parse(str, i));
           continue;
         }
         break;
       } while (++i < str.length());
-      return out.concat(token);
+      return std::move(out.concat(token));
     };
     const std::function<RegexLexer()> parse_ = [&]() {
       auto lhs = parse_3();
