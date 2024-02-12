@@ -1,3 +1,4 @@
+#include <cassert>
 #include <string>
 #include "base.hpp"
 
@@ -56,15 +57,49 @@ using RL = RegexLexer<TokenType, TokenType::Null, [](TokenType a, TokenType b){
   }
 }>;
 
+auto regexsize(const RL& regex) {
+  auto size = 0;
+  for (const auto& m : regex.transitions) {
+    for (const auto& _ : m) ++size;
+  }
+  return size;
+}
+
 int main(int argc, char** argv) {
   for (auto i = 0; i < 100; ++i) {
   RL regex;
 #define _(t, r) regex.alter(RL::parse(r, TokenType::t));
 TOKEN_TYPE(_);
 #undef _
+
   regex.dfa();
-  const auto match = regex.match("");
-  if (match != TokenType::Null) printf("%s\n", tokenTypeToString(match).c_str());
+  
+#define print printf("states: %lu transitions: %u\n", regex.states.size(), regexsize(regex))
+
+  //print;
+  regex.minimise();
+  //print;
+
+  /*
+  printf("start: %d accept:", regex.start);
+  for (const auto& x : regex.accept) printf(" %d", x);
+  printf("\n");
+  for (auto i = 0; i < regex.states.size(); ++i) {
+    for (const auto& [c, v] : regex.transitions[i]) {
+      //printf("%d %d %c %s\n", i, v.val, c, tokenTypeToString(regex.states[v.val]).c_str());
+    }
+  }
+  */
+
+  assert(std::find(regex.alphabet.begin(), regex.alphabet.end(), 0) == regex.alphabet.end());
+  assert(regex.match("") == TokenType::Null);
+  assert(regex.match("!=") == TokenType::NotEqual);
+  assert(regex.match("==") == TokenType::Equal);
+  assert(regex.match("if") == TokenType::If);
+  assert(regex.match("ife") == TokenType::Identifier);
+  assert(regex.match("     ") == TokenType::Whitespace);
+  assert(regex.match("\t\n ") == TokenType::Whitespace);
+  assert(regex.match("\"Hello World\\n\"") == TokenType::String);
   }
   return 0;
 }
