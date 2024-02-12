@@ -100,6 +100,5 @@ TOKEN_TYPE(_);
   assert(regex.match("\t\n ") == TokenType::Whitespace);
   assert(regex.match("\"Hello World\\n\"") == TokenType::String);
   }
-  printf("copies: %d moves: %d\n", stats.cpy, stats.mv);
   return 0;
 }

@@ -22,14 +22,11 @@ struct std::hash<std::unordered_set<i32>> {
 template <typename T>
 concept mvectorable = requires { requires sizeof(T) <= sizeof(T*); };
 
-struct { size_t cpy {}; size_t mv {}; } stats;
-
 template <mvectorable T>
 struct mvector {
   mvector(const mvector& x) : data(nullptr) { *this = x; }
   mvector(mvector&& x) { *this = std::move(x); }
   mvector& operator=(const mvector& x) {
-    ++stats.cpy;
     if (hasData()) free(data);
     _capacity = x._capacity;
     _size = x._size;
@@ -41,7 +38,6 @@ struct mvector {
     return *this;
   }
   mvector& operator=(mvector&& x) {
-    ++stats.mv;
     if (this != &x) {
       if (hasData()) free(data);
       data = x.data;
