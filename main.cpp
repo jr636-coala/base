@@ -1,5 +1,4 @@
 #include <cassert>
-#include <string>
 #include "base.hpp"
 
 #define TOKEN_TYPE(_) \
@@ -41,7 +40,7 @@ TOKEN_TYPE(_)
 #undef _
 };
 
-std::string tokenTypeToString(TokenType t) {
+auto tokenTypeToString(TokenType t) {
   switch (t) {
 #define _(t, r) case TokenType::t: return #t;
 TOKEN_TYPE(_)

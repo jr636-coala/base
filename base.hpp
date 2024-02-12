@@ -12,6 +12,23 @@ typedef uint32_t u32; typedef int32_t i32;
 typedef uint16_t u16; typedef int16_t i16;
 typedef uint8_t u8;   typedef int8_t i8;
 
+/*
+ * mvector
+ * -------
+ *  A minimal (and I mean minimal, works just enough to function)
+ *  SUM(vector<T>, T) type. Useful in the regex case where we go from using an
+ *  NFA (multiple routes per symbol out of a node) to a DFA (a single route
+ *  per symbol out of the node). It means we don't have to allocate a bunch
+ *  more memory.
+ * 
+ * RegexLexer
+ * ----------
+ *  A regex implementation that has 'tagged' nodes, matching returns that tag.
+ *  Written so that when I am writing lexers I don't have to do so much busy
+ *  work.
+ *
+ * */
+
 template <>
 struct std::hash<std::unordered_set<i32>> {
   std::size_t operator()(const std::unordered_set<i32>& k) const {
