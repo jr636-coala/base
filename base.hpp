@@ -12,6 +12,8 @@ typedef uint32_t u32; typedef int32_t i32;
 typedef uint16_t u16; typedef int16_t i16;
 typedef uint8_t u8;   typedef int8_t i8;
 
+struct Location { i32 start; i32 end; };
+
 template <>
 struct std::hash<std::unordered_set<i32>> {
   std::size_t operator()(const std::unordered_set<i32>& k) const {
@@ -209,8 +211,10 @@ struct RegexLexer {
 
   constexpr RegexLexer& alter(const RegexLexer& x) { 
     if (!accept.size()) return *this = x;
+    const auto ns = addState();
     const auto maxx = states.size();
-    transitions[start]['\0'].push_back(x.start + maxx);
+    transitions[ns]['\0'].push_back(start);
+    transitions[ns]['\0'].push_back(x.start + maxx);
     std::copy_if(x.alphabet.begin(), x.alphabet.end(), std::back_inserter(alphabet), [&](auto c) {
       return std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end();
     });
@@ -225,6 +229,7 @@ struct RegexLexer {
     }
     states.insert(states.end(), x.states.begin(), x.states.end());
     std::transform(x.accept.begin(), x.accept.end(), std::back_inserter(accept), [&](auto n) { return n + maxx; });
+    start = ns;
     return *this; 
   }
 
@@ -484,15 +489,22 @@ struct RegexLexer {
     };
     return parse_();
   }
+
   T match(const std::string_view& str) const {
+    return match(str, 0).first;
+  }
+
+  std::pair<T, Location> match(const std::string_view& str, i32 i) const {
     auto curr = start;
-    for (const auto c : str) {
-      if (std::find(alphabet.begin(), alphabet.end(), c) == alphabet.end()) return T_NULL;
+    Location loc = { .start = i, .end = i };
+    if (i >= str.length()) return { T_NULL, loc };
+    for (const auto c : str.substr(i)) {
       const auto& next = transitions[curr].find(c);
       if (next == transitions[curr].end()) break;
       curr = next->second.val;
+      ++loc.end;
     }
-    return states[curr];
+    return { states[curr], loc };
   }
 
   std::vector<state_t> states;
